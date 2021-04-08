@@ -1,0 +1,18 @@
+---
+title: "Movielens Report"
+author: "Zachary Naumann"
+date: "4/1/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+## Analysis
+
+## Results
+
+## Conclusion
