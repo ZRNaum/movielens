@@ -1,15 +1,45 @@
 ---
-title: "Movielens Report"
+title: "MovieLens Report"
 author: "Zachary Naumann"
-date: "4/1/2021"
+date: "4/15/2021"
 output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(recommenderlab)) install.packages("recommenderlab", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(data.table)
+library(recommenderlab)
+
+edx <- read_csv("edx.csv")
 ```
 
 ## Introduction
+The purpose of this report was to determine the effect of various factors on
+movie ratings. The relevant dataset was contained in a data frame with 6
+variables, with each element representing an instance of a movie watched by a
+user. Below is a sample of the dataset for reference:
+```{r structure, echo=FALSE}
+head(edx)
+```
+The purpose of each variable is as follows:  
+1. *userId* - unique numeric identifier for the user  
+2. *movieId* - unique numeric identifier for the movie  
+3. *rating* - rating given by the user to the movie; the lowest rating
+possible is 0.5, the highest possible is 5  
+4. *timestamp* - timestamp for when the user watched the movie  
+5. *title* - title of the movie  
+6. *genres* - genres assigned to the movie; a movie can have 1 or more genres  
+  
+  
+There were several key steps required to gather the necessary data.
 
 ## Analysis
 

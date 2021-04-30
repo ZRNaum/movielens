@@ -3,3 +3,5 @@
 .RData
 .Ruserdata
 ml-10M100K
+edx.csv
+validation.csv
