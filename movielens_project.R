@@ -76,7 +76,7 @@ write_csv(validation, "validation.csv")
 
 # Generate train and test sets from edx dataset
 set.seed(1, sample.kind="Rounding")
-index <- createDataPartition(edx$rating, times = 1, p = 0.2, list = FALSE)
+index <- createDataPartition(edx$rating, times = 1, p = 0.5, list = FALSE)
 train_set <- edx[-index]
 test_set <- edx[index]
 test_set <- test_set %>%
@@ -108,18 +108,18 @@ train_set %>%
 train_set %>%
   group_by(month) %>%
   filter(n()>=100) %>%
-  summarize(b_y = mean(rating)) %>%
-  ggplot(aes(b_y)) +
+  summarize(b_m = mean(rating)) %>%
+  ggplot(aes(b_m)) +
   geom_histogram(bins = 30, color = "black")
 
 train_set %>%
   group_by(day) %>%
   filter(n()>=100) %>%
-  summarize(b_y = mean(rating)) %>%
-  ggplot(aes(b_y)) +
+  summarize(b_d = mean(rating)) %>%
+  ggplot(aes(b_d)) +
   geom_histogram(bins = 30, color = "black")
 
-# Regularized model using original recommendation system code
+# Regularized model
 lambdas <- seq(0, 10, 0.25)
 
 rmses <- sapply(lambdas, function(l) {
@@ -163,3 +163,45 @@ rmses <- sapply(lambdas, function(l) {
 })
 
 lambda <- lambdas[which.min(rmses)]
+
+
+# Final RMSE calculation using validation set
+final_rmse <- sapply(lambda, function(l) {
+  mu_hat <- mean(edx$rating)
+  
+  # Movie bias
+  b_i <- edx %>%
+    group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu_hat)/(n() + l))
+  
+  # User bias
+  b_u <- edx %>%
+    left_join(b_i, by = 'movieId') %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - mu_hat - b_i)/(n() + l))
+  
+  # Genre bias
+  b_g <- edx %>%
+    left_join(b_i, by = 'movieId') %>%
+    left_join(b_u, by = 'userId') %>%
+    group_by(genres) %>%
+    summarize(b_g = sum(rating - mu_hat - b_i - b_u)/(n() + l))
+  
+  # Day bias
+  b_d <- edx %>%
+    left_join(b_i, by = 'movieId') %>%
+    left_join(b_u, by = 'userId') %>%
+    left_join(b_g, by = 'genres') %>%
+    group_by(day) %>%
+    summarize(b_d = sum(rating - mu_hat - b_i - b_u - b_g)/(n() + l))
+  
+  predicted_ratings <- validation %>%
+    left_join(b_i, by = 'movieId') %>%
+    left_join(b_u, by = 'userId') %>%
+    left_join(b_g, by = 'genres') %>%
+    left_join(b_d, by = 'day') %>%
+    mutate(pred = mu_hat + b_i + b_u + b_g + b_d) %>%
+    pull(pred)
+  
+  return(RMSE(validation$rating, predicted_ratings))
+})
