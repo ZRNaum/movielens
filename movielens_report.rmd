@@ -11,21 +11,40 @@ knitr::opts_chunk$set(echo = TRUE)
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 if(!require(recommenderlab)) install.packages("recommenderlab", repos = "http://cran.us.r-project.org")
 
 library(tidyverse)
 library(caret)
 library(data.table)
+library(lubridate)
 library(recommenderlab)
 
-edx <- read_csv("edx.csv")
+# Read in the datasets from the .csv files
+dl <- tempfile()
+download.file("https://dl.dropboxusercontent.com/s/tp2m0o88syeke7b/edx.csv?dl=1", dl)
+edx <- as.data.table(read_csv(dl, col_names = TRUE))
+dl <- tempfile()
+download.file("https://dl.dropboxusercontent.com/s/3i76o1r02pev3yd/validation.csv?dl=1", dl)
+validation <- as.data.table(read_csv(dl, col_names = TRUE))
+
+# Generate train and test sets from edx dataset
+set.seed(1, sample.kind="Rounding")
+index <- createDataPartition(edx$rating, times = 1, p = 0.2, list = FALSE)
+train_set <- edx[-index]
+test_set <- edx[index]
+test_set <- test_set %>%
+  semi_join(train_set, by = 'movieId') %>%
+  semi_join(train_set, by = 'userId')
 ```
 
-## Introduction
+# Introduction
 The purpose of this report was to determine the effect of various factors on
-movie ratings. The relevant dataset was contained in a data frame with 6
-variables, with each element representing an instance of a movie watched by a
-user. Below is a sample of the dataset for reference:
+movie ratings with the goal of creating a model that could effectively predict
+a movie's rating. The relevant dataset, named *edx* and containing about
+9 million entries, was contained in a data frame with 6 variables, with each
+element representing an instance of a movie watched by a user. Below is a sample
+of the dataset for reference:
 ```{r structure, echo=FALSE}
 head(edx)
 ```
@@ -37,12 +56,229 @@ possible is 0.5, the highest possible is 5
 4. *timestamp* - timestamp for when the user watched the movie  
 5. *title* - title of the movie  
 6. *genres* - genres assigned to the movie; a movie can have 1 or more genres  
+7. *year* - year the movie was watched  
+8. *month* - month the movie was watched  
+9. *day* - day the movie was watched
+
   
+There were several key steps required to gather the necessary data. Before doing
+anything else, the *edx* set was partioning into a training and test set. These
+were named *train_set* and *test_set* and contained about 7.2 million and 
+1.8 million entries respectively. The first step after creating and partitioning
+the dataset was to analyze the individual effects of each variable on the
+average rating to determine which variables would be viable for the model. After
+choosing which variables to use, the model was created performing calculations
+on the biases using a set a training data. The results of these calculations
+were then used to predict RMSEs with a set of test data, with many lambdas being
+tested in order to regularize the model. After deciding on the lambda that
+minimized the RMSE, a final model was calculated using the entire edx dataset.
+This model was run against an independent validation set, simply named
+*validation* and containing about 1 million entries, to come up with the final
+RMSE value.
+
+# Methods/Analysis
+## Dataset Modifications
+Before any data exploration was done, changes were made to the *timestamp*
+variable to make it more useful for analysis. The original timestamp, which was
+an unreadable integer, was converted to a human-friendly POSIXct date-time
+format. The converted timestamp was then split into year, month, and day fields.
+
+## Model and Biases
+The model used for this recommendation system is represented by the following
+formula:  
+
+\[Y_{u,i} = \mu + b_i + b_u + b_g + b_d + \epsilon_{u,i}\]
+
+*Y~u,i~* is defined as the rating for movie *i* by user *u*, *$\mu$* is
+the average rating for all movies, *$\epsilon$~u,i~* are the independent
+errors, and the *b*s are the biases.
+
+### Movie Bias
+The movie bias, denoted by the term *b~i~*, represents the effect that the
+movie itself has on the average rating. This just means that different movies
+receive different ratings.
+
+\newpage
+
+### User Bias
+The user bias, denoted by the term *b~u~*, represents the effect that a user
+has on the average rating. Some users tend to be more picky than others, which
+leads to substantial variation in average movie ratings among users. This can be
+seen in the graph below:
+```{r user, echo=FALSE, fig.align='center'}
+train_set %>% 
+  group_by(userId) %>% 
+  filter(n()>=100) %>%
+  summarize(b_u = mean(rating)) %>% 
+  ggplot(aes(b_u)) + 
+  geom_histogram(bins = 30, color = "black") +
+  ggtitle("Effect of Users on Average Movie Rating")
+```
+\newpage
+
+### Genre Bias
+The genre bias, denoted by the term *b~g~*, represents the effect of the
+movie's genre on the average rating. For this model, a genre can be one or more
+classifications for a movie (e.g. Action or Comedy|Drama). As with the user
+bias, there was a significant amount of variability surrounding this field, as
+shown below:
+```{r genre, echo=FALSE, fig.align='center'}
+train_set %>%
+  group_by(genres) %>%
+  filter(n() >= 1000) %>%
+  summarize(b_g = mean(rating)) %>%
+  ggplot(aes(b_g)) +
+  geom_histogram(bins = 30, color = "black") +
+  ggtitle("Effect of Genre on Average Movie Rating")
+```
+\newpage
+
+### Day Bias
+The day bias, denoted by the term *b~d~*, represents the effect that the day
+of the month has on the average rating. Year, month, and day were all examined
+to determine variability. For *year* and *month*, there was no clear
+variability:
+```{r year-month, echo=FALSE, fig.align='center'}
+train_set %>%
+  group_by(year) %>%
+  filter(n() >= 5) %>%
+  summarize(b_y = mean(rating)) %>%
+  ggplot(aes(b_y)) +
+  geom_histogram(bins = 30, color = "black") +
+  ggtitle("Effect of Year on Average Movie Rating")
+
+train_set %>%
+  group_by(month) %>%
+  summarize(b_m = mean(rating)) %>%
+  ggplot(aes(b_m)) +
+  geom_histogram(bins = 30, color = "black") +
+  ggtitle("Effect of Month on Average Movie Rating")
+```
+There was, however, noticeable variability when analyzing the *day* variable:
+```{r day, echo=FALSE, fig.align='center'}
+train_set %>%
+  group_by(day) %>%
+  summarize(b_d = mean(rating)) %>%
+  ggplot(aes(b_d)) +
+  geom_histogram(bins = 30, color = "black") +
+  ggtitle("Effect of Day on Average Movie Rating")
+```
+As can be seen above, there is a visible normal distribution to the data. It is
+much narrower than with users or genres, but it was still worth using in the
+model.
+
+# Results
+## Testing and Regularization
+With the model created and the biases chosen, testing was done by performing
+predictive RMSE calculations on the test set using different lambdas in order to
+determine which lambda to use in the final regularized model.
+```{r test-and-regularize, echo=FALSE}
+lambdas <- seq(0, 10, 0.25)
+
+rmses <- sapply(lambdas, function(l) {
+  mu_hat <- mean(train_set$rating)
   
-There were several key steps required to gather the necessary data.
+  # Movie bias
+  b_i <- train_set %>%
+    group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu_hat)/(n() + l))
+  
+  # User bias
+  b_u <- train_set %>%
+    left_join(b_i, by = 'movieId') %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - mu_hat - b_i)/(n() + l))
+  
+  # Genre bias
+  b_g <- train_set %>%
+    left_join(b_i, by = 'movieId') %>%
+    left_join(b_u, by = 'userId') %>%
+    group_by(genres) %>%
+    summarize(b_g = sum(rating - mu_hat - b_i - b_u)/(n() + l))
+  
+  # Day bias
+  b_d <- train_set %>%
+    left_join(b_i, by = 'movieId') %>%
+    left_join(b_u, by = 'userId') %>%
+    left_join(b_g, by = 'genres') %>%
+    group_by(day) %>%
+    summarize(b_d = sum(rating - mu_hat - b_i - b_u - b_g)/(n() + l))
+  
+  predicted_ratings <- test_set %>%
+    left_join(b_i, by = 'movieId') %>%
+    left_join(b_u, by = 'userId') %>%
+    left_join(b_g, by = 'genres') %>%
+    left_join(b_d, by = 'day') %>%
+    mutate(pred = mu_hat + b_i + b_u + b_g + b_d) %>%
+    pull(pred)
+  
+  return(RMSE(test_set$rating, predicted_ratings))
+})
 
-## Analysis
+lambda <- lambdas[which.min(rmses)]
+```
+The results of the tests produced a minimum RMSE value of `r min(rmses)` with a
+corresponding lambda value of `r lambda`. This lambda value was used in the
+final calculation. While the minimum RMSE value in these tests was not under the
+desired threshold of 0.86490, it was close enough to go ahead with the final
+calculation.
 
-## Results
+## Final RMSE Calculation
+The final calculation utilized the entire edx dataset and predicted against the
+separate validation dataset.
+```{r final-calculation, echo=FALSE}
+final_rmse <- sapply(lambda, function(l) {
+  mu_hat <- mean(edx$rating)
+  
+  # Movie bias
+  b_i <- edx %>%
+    group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu_hat)/(n() + l))
+  
+  # User bias
+  b_u <- edx %>%
+    left_join(b_i, by = 'movieId') %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - mu_hat - b_i)/(n() + l))
+  
+  # Genre bias
+  b_g <- edx %>%
+    left_join(b_i, by = 'movieId') %>%
+    left_join(b_u, by = 'userId') %>%
+    group_by(genres) %>%
+    summarize(b_g = sum(rating - mu_hat - b_i - b_u)/(n() + l))
+  
+  # Day bias
+  b_d <- edx %>%
+    left_join(b_i, by = 'movieId') %>%
+    left_join(b_u, by = 'userId') %>%
+    left_join(b_g, by = 'genres') %>%
+    group_by(day) %>%
+    summarize(b_d = sum(rating - mu_hat - b_i - b_u - b_g)/(n() + l))
+  
+  predicted_ratings <- validation %>%
+    left_join(b_i, by = 'movieId') %>%
+    left_join(b_u, by = 'userId') %>%
+    left_join(b_g, by = 'genres') %>%
+    left_join(b_d, by = 'day') %>%
+    mutate(pred = mu_hat + b_i + b_u + b_g + b_d) %>%
+    pull(pred)
+  
+  return(RMSE(validation$rating, predicted_ratings))
+})
+```
+The final RMSE value for the regularized model was `r final_rmse`. This was well
+under the desired threshold, which means that this recommendation system
+performs fairly well at predicting how a movie will be rated.
 
-## Conclusion
+# Conclusion
+The results of this report indicate that the model used for this recommendation
+system was effective at predicting the rating of a movie. There were several
+fields available in the dataset that were useful as predictors, which greatly
+helped when building the model. The main limitation when developing the model
+was the size of the dataset. Even when partitioning the data into training and
+test sets, the amount of data was into the millions, which reduced the number of
+modeling methods that were viable. Because of this, any future work on this
+system would revolve around optimizing how the data is partitioned and
+referenced in order to improve the speed at which the predictions could be
+calculated.

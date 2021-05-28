@@ -70,13 +70,13 @@ validation <- validation %>% mutate(timestamp = as_datetime(timestamp),
                                     month = month(ymd_hms(timestamp)),
                                     day = day(ymd_hms(timestamp)))
 
-# Export dataset to .csv for use in report
+# Export datasets to .csv for use in report
 write_csv(edx, "edx.csv")
 write_csv(validation, "validation.csv")
 
 # Generate train and test sets from edx dataset
 set.seed(1, sample.kind="Rounding")
-index <- createDataPartition(edx$rating, times = 1, p = 0.5, list = FALSE)
+index <- createDataPartition(edx$rating, times = 1, p = 0.2, list = FALSE)
 train_set <- edx[-index]
 test_set <- edx[index]
 test_set <- test_set %>%
@@ -84,6 +84,7 @@ test_set <- test_set %>%
   semi_join(train_set, by = 'userId')
 
 # Compute average ratings for various predictors to determine variability
+# UserId
 train_set %>% 
   group_by(userId) %>% 
   filter(n()>=100) %>%
@@ -91,6 +92,7 @@ train_set %>%
   ggplot(aes(b_u)) + 
   geom_histogram(bins = 30, color = "black")
 
+# Genres
 train_set %>%
   group_by(genres) %>%
   filter(n() >= 1000) %>%
@@ -98,28 +100,29 @@ train_set %>%
   ggplot(aes(b_g)) +
   geom_histogram(bins = 30, color = "black")
 
+# Year
 train_set %>%
   group_by(year) %>%
-  filter(n()>=100) %>%
+  filter(n() >= 5) %>%
   summarize(b_y = mean(rating)) %>%
   ggplot(aes(b_y)) +
   geom_histogram(bins = 30, color = "black")
 
+# Month
 train_set %>%
   group_by(month) %>%
-  filter(n()>=100) %>%
   summarize(b_m = mean(rating)) %>%
   ggplot(aes(b_m)) +
   geom_histogram(bins = 30, color = "black")
 
+# Day
 train_set %>%
   group_by(day) %>%
-  filter(n()>=100) %>%
   summarize(b_d = mean(rating)) %>%
   ggplot(aes(b_d)) +
   geom_histogram(bins = 30, color = "black")
 
-# Regularized model
+# Testing model to find the lambda that minimizes the RMSE
 lambdas <- seq(0, 10, 0.25)
 
 rmses <- sapply(lambdas, function(l) {
@@ -162,6 +165,7 @@ rmses <- sapply(lambdas, function(l) {
   return(RMSE(test_set$rating, predicted_ratings))
 })
 
+# Best lambda value
 lambda <- lambdas[which.min(rmses)]
 
 
